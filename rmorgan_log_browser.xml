@@ -246,11 +246,21 @@
   </row>
   <row depends="$selected_hosts$">
     <panel>
-      <title>Open this dashboards but with the base filters applied</title>
+      <title>Open this dashboard but (with your filters)</title>
       <html>
         <h1 style="text-align:center;">host=$selected_host$ thread_name=$selected_thread_name$ log_level=$selected_log_level$ component=$selected_component$ thread_id=$selected_thread_id$</h1>
         <h2 style="text-align:center">
-        <a target="_blank" rel="noopener noreferrer" href="thread_browser?form.time.earliest=$selection_earliest$&amp;form.time.latest=$selection_latest$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_stack=$selected_stack$&amp;form.selected_hosts=$form.selected_hosts$&amp;form.selected_filter=$effective_filter$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_log_browser?form.time.earliest=$selection_earliest$&amp;form.time.latest=$selection_latest$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_stack=$selected_stack$&amp;form.selected_hosts=$form.selected_hosts$&amp;form.selected_filter=$effective_filter$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
+      
+        </h2>
+      </html>
+    </panel>
+        <panel>
+      <title>Open the ingestion dashboard</title>
+      <html>
+        <h1 style="text-align:center;">host=$selected_host$</h1>
+        <h2 style="text-align:center">
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_ingestion?form.time.earliest=$selection_earliest$&amp;form.time.latest=$selection_latest$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_host=$form.selected_host$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
       
         </h2>
       </html>
