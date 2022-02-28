@@ -1,0 +1,320 @@
+<form>
+  <label>Splunkd thread browser</label>
+  <init>
+    <set token="splunkd">index=_internal</set>
+  </init>
+  <fieldset submitButton="false">
+    <input type="time" token="time">
+      <label></label>
+      <default>
+        <earliest>-4h@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="selected_resolution">
+      <label>Chart resolution</label>
+      <choice value="100">low (100)</choice>
+      <choice value="250">medium (250)</choice>
+      <choice value="500">high (500)</choice>
+      <choice value="1000">break my browser (1000)</choice>
+      <default>250</default>
+    </input>
+    <input type="text" token="selected_hosts" searchWhenChanged="true">
+      <label>select host</label>
+      <default>host=sh*</default>
+    </input>    <input type="text" token="selected_filter">
+      <label>Additional filters</label>
+      <default>*</default>
+    </input>
+  </fieldset>
+  <row rejects="$selected_stack$">
+    <panel>
+      <html>
+        <h1 style="text-align:center;">Please select hosts that have threadname logging enabled, this started in 8.1.x</h1>
+      </html>
+    </panel>
+  </row>
+  <row rejects="$selected_hosts$">
+    <panel>
+      <html>
+        <h1 style="text-align:center;color:green">Please select host(s)</h1>
+      </html>
+    </panel>
+  </row>
+  <row depends="$selected_hosts$">
+    <panel>
+      <title>Filters for dashboard - select manually from the list, or click on the chart</title>
+      <input type="dropdown" token="selected_host">
+        <label>Selected host name</label>
+        <choice value="*">*</choice>
+        <default>*</default>
+        <fieldForLabel>label</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search base="base_filtered">
+          <query>| stats count by host 
+| eval label=host." (".count.")"</query>
+        </search>
+      </input>
+      <input type="dropdown" token="selected_thread_name">
+        <label>Selected thread name</label>
+        <choice value="*">*</choice>
+        <default>*</default>
+        <fieldForLabel>label</fieldForLabel>
+        <fieldForValue>thread_name</fieldForValue>
+        <search base="base_filtered">
+          <query>| stats count by thread_name 
+| eval label=thread_name." (".count.")"
+| sort - count</query>
+        </search>
+      </input>
+      <input type="dropdown" token="selected_component">
+        <label>Selected component</label>
+        <choice value="*">*</choice>
+        <default>*</default>
+        <fieldForLabel>label</fieldForLabel>
+        <fieldForValue>component</fieldForValue>
+        <search base="base_filtered">
+          <query>| stats count by component | eval label=component." (".count.")"</query>
+        </search>
+      </input>
+      <input type="dropdown" token="selected_log_level">
+        <label>Selected log_level name</label>
+        <choice value="*">*</choice>
+        <default>*</default>
+        <fieldForLabel>label</fieldForLabel>
+        <fieldForValue>log_level</fieldForValue>
+        <search base="base_filtered">
+          <query>| stats count by log_level | eval label=log_level." (".count.")"</query>
+        </search>
+      </input>
+      <input type="dropdown" token="selected_thread_id">
+        <label>Selected thread id</label>
+        <choice value="*">*</choice>
+        <default>*</default>
+        <fieldForLabel>label</fieldForLabel>
+        <fieldForValue>thread_id</fieldForValue>
+        <search base="base_filtered">
+          <query>| stats count by thread_id | eval label=thread_id." (".count.")"</query>
+        </search>
+      </input>
+      <input type="multiselect" token="selected_annotations">
+        <label>Annotation overlay</label>
+        <choice value="ERROR">ERROR</choice>
+        <choice value="FATAL">FATAL</choice>
+        <choice value="INFO">INFO</choice>
+        <choice value="DEBUG">DEBUG</choice>
+        <default>FATAL</default>
+        <prefix>log_level IN (</prefix>
+        <suffix>)</suffix>
+        <delimiter>, </delimiter>
+      </input>
+    </panel>
+  </row>
+  <row depends="$debug$,$selected_hosts$">
+    <panel>
+      <title></title>
+      <input type="text" token="selected_span_1s" searchWhenChanged="true">
+        <label>selected_span_1s</label>
+        <default>1</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_10s">
+        <label>selected_span_10s</label>
+        <default>10</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_31s">
+        <label>selected_span_31s</label>
+        <default>31</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_60s">
+        <label>selected_span_60s</label>
+        <default>60</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+    </panel>
+    <panel>
+      <title>Compute timespan</title>
+      <table>
+        <search>
+          <done>
+            <set token="form.selected_span_1s">$result.span_1s$</set>
+            <set token="form.selected_span_10s">$result.span_10s$</set>
+            <set token="form.selected_span_31s">$result.span_31s$</set>
+            <set token="form.selected_span_60s">$result.span_60s$</set>
+          </done>
+          <query>| makeresults 
+| addinfo 
+| eval 
+    duration_seconds=info_max_time-info_min_time,
+    resolution=$selected_resolution$,
+    span_1s=if(duration_seconds/resolution&lt;1,1,round(duration_seconds/resolution,0)),
+    span_10s=if(duration_seconds/resolution&lt;10,10,round(duration_seconds/resolution,0)),
+    span_31s=if(duration_seconds/resolution&lt;31,31,round(duration_seconds/resolution,0)),
+    span_60s=if(duration_seconds/resolution&lt;60,60,round(duration_seconds/resolution,0))   
+| fields span_*</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row depends="$selected_hosts$">
+    <panel>
+      <input type="dropdown" token="selected_splitby">
+        <label>Select split by</label>
+        <choice value="by host">host</choice>
+        <choice value="by component">component</choice>
+        <choice value="by log_level">log_level</choice>
+        <choice value="by thread_name">thread_name</choice>
+        <choice value="by thread_id">thread_id</choice>
+        <default>by thread_name</default>
+      </input>
+      <chart>
+        <title>Click on a series to set value for $selected_splitby$</title>
+        <search base="annotations" type="annotation"></search>
+        <search base="base_filtered">
+          <query>| timechart $selected_span_1s$ limit=50 count $selected_splitby$</query>
+        </search>
+        <selection>
+          <set token="selection_earliest">$start$</set>
+          <set token="selection_latest">$end$</set>
+          <eval token="selection_earliest_str">strftime(tonum("$selection_earliest$")"%x %X")</eval>
+          <eval token="selection_latest_str">strftime(tonum("$selection_latest$")"%x %X")</eval>
+        </selection>
+        <option name="charting.axisLabelsX.majorLabelStyle.overflowMode">ellipsisNone</option>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">0</option>
+        <option name="charting.axisTitleX.visibility">visible</option>
+        <option name="charting.axisTitleY.visibility">visible</option>
+        <option name="charting.axisTitleY2.visibility">visible</option>
+        <option name="charting.axisX.abbreviation">none</option>
+        <option name="charting.axisX.scale">linear</option>
+        <option name="charting.axisY.abbreviation">none</option>
+        <option name="charting.axisY.scale">linear</option>
+        <option name="charting.axisY2.abbreviation">none</option>
+        <option name="charting.axisY2.enabled">0</option>
+        <option name="charting.axisY2.scale">inherit</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.bubbleMaximumSize">50</option>
+        <option name="charting.chart.bubbleMinimumSize">10</option>
+        <option name="charting.chart.bubbleSizeBy">area</option>
+        <option name="charting.chart.nullValueMode">gaps</option>
+        <option name="charting.chart.showDataLabels">none</option>
+        <option name="charting.chart.sliceCollapsingThreshold">0.01</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.chart.style">shiny</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.layout.splitSeries">0</option>
+        <option name="charting.layout.splitSeries.allowIndependentYRanges">0</option>
+        <option name="charting.legend.labelStyle.overflowMode">ellipsisEnd</option>
+        <option name="charting.legend.mode">standard</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="charting.lineWidth">2</option>
+        <option name="height">464</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">0</option>
+        <option name="trellis.size">medium</option>
+        <option name="trellis.splitBy">_aggregation</option>
+        <drilldown>
+          <condition match="$selected_splitby$=&quot;by thread_name&quot;">
+            <set token="form.selected_thread_name">$click.name2$</set>
+          </condition>
+          <condition match="$selected_splitby$=&quot;by thread_id&quot;">
+            <set token="form.selected_thread_id">$click.name2$</set>
+          </condition>
+          <condition match="$selected_splitby$=&quot;by component&quot;">
+            <set token="form.selected_component">$click.name2$</set>
+          </condition>
+          <condition match="$selected_splitby$=&quot;by log_level&quot;">
+            <set token="form.selected_log_level">$click.name2$</set>
+          </condition>
+          <condition match="$selected_splitby$=&quot;by host&quot;">
+            <set token="form.selected_host">$click.name2$</set>
+          </condition>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row depends="$selected_hosts$">
+    <panel>
+      <title>Open this dashboards but with the base filters applied</title>
+      <html>
+        <h1 style="text-align:center;">host=$selected_host$ thread_name=$selected_thread_name$ log_level=$selected_log_level$ component=$selected_component$ thread_id=$selected_thread_id$</h1>
+        <h2 style="text-align:center">
+        <a target="_blank" rel="noopener noreferrer" href="thread_browser?form.time.earliest=$selection_earliest$&amp;form.time.latest=$selection_latest$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_stack=$selected_stack$&amp;form.selected_hosts=$form.selected_hosts$&amp;form.selected_filter=$effective_filter$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
+      
+        </h2>
+      </html>
+    </panel>
+  </row>
+  <row depends="$selected_hosts$">
+    <panel>
+      <title>thread_name=$selected_thread_name$ AND log_level=$selected_log_level$ AND component=$selected_component$ AND thread_id=$selected_thread_id$ AND _time&gt;=$selection_earliest$ AND _time&lt;=$selection_latest$</title>
+      <table>
+        <search base="base_filtered">
+          <query>| where _time&gt;=$selection_earliest$ AND _time&lt;=$selection_latest$</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row depends="$debug$">
+    <panel>
+      <title>Base log data</title>
+      <table>
+        <search id="base">
+          <progress>
+            <set token="base_search">$job.search$</set>
+          </progress>
+          <query>$splunkd$ $selected_hosts$ $selected_filter$ 
+| table _time host log_level thread_name component event_message thread_id</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>log data filtered</title>
+      <table>
+        <search base="base" id="base_filtered">
+          <query>| search host=$selected_host$ thread_name=$selected_thread_name$ log_level=$selected_log_level$ component=$selected_component$ thread_id=$selected_thread_id$</query>
+          <progress>
+            <set token="base_search_filtered">$job.search$</set>
+            <set token="effective_filter">host%3D$selected_host$%20thread_name%3D$selected_thread_name$%20log_level%3D$selected_log_level$%20component%3D$selected_component$%20thread_id%3D$selected_thread_id$</set>
+          </progress>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Annotations</title>
+      <table>
+        <search base="base_filtered" id="annotations">
+          <query>| search $selected_annotations$
+| eval annotation_category=host, 
+    annotation_label=thread_name." in ".component
+| table _time annotation*</query>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>
