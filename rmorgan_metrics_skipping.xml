@@ -1,5 +1,5 @@
 <form>
-  <label>Stack metric heart beat checking</label>
+  <label>Metric heart beat checking</label>
   <fieldset submitButton="false">
     <input type="time" token="time">
       <label></label>
@@ -106,11 +106,11 @@
     <panel>
       <chart>
         <title>When did the skipping occur, per role?</title>
-        <search base="restart_annotation" type="annotation"></search>
         <search base="base_modified">
           <query>| where expected_readings_state="skipping"
 | timechart fixedrange=false limit=0 dc(host) by role</query>
         </search>
+        <search base="restart_annotation" type="annotation"></search>
         <option name="charting.chart">column</option>
         <option name="charting.chart.stackMode">stacked</option>
         <option name="charting.drilldown">all</option>
@@ -135,9 +135,6 @@
       </input>
       <chart>
         <title>The $selected_role$ is skipping metrics at the following times</title>
-        <search base="restart_annotation" type="annotation">
-          <query>| where role="$selected_role$"</query>
-        </search>
         <search base="base_modified">
           <query>| where expected_readings_state="skipping" AND searchmatch("host=$selected_role$") 
 | appendpipe 
@@ -146,6 +143,9 @@
 | eventstats max(expected_readings_lower) as skipping_threshold
 | where isnotnull(results)
 | fields + _time skipping_threshold idx* sh* c0m* idm*</query>
+        </search>
+        <search base="restart_annotation" type="annotation">
+          <query>| where role="$selected_role$"</query>
         </search>
         <option name="charting.chart">column</option>
         <option name="charting.chart.overlayFields">skipping_threshold</option>
@@ -180,7 +180,6 @@
       </input>
       <chart>
         <title>The $selected_host$ is skipping metrics at the following times</title>
-        <search base="restart_annotation" type="annotation"></search>
         <search base="base_modified">
           <query>| where $selected_hosts$
 | appendpipe 
@@ -190,6 +189,7 @@
 | where isnotnull(results)
 | fields + _time skipping_threshold idx* sh* c0m* idm*</query>
         </search>
+        <search base="restart_annotation" type="annotation"></search>
         <selection>
           <set token="window_start">$start$</set>
           <set token="window_end">$end$</set>
@@ -287,24 +287,15 @@
       </input>
     </panel>
   </row>
-   <row depends="$selected_hosts$">
-    <panel>
-      <title>Open this dashboard but (with your filters)</title>
+  <row depends="$selected_hosts$">
+        <panel>
+      <title>Drill down to dashboards</title>
       <html>
-        <h1 style="text-align:center;">Ingestion</h1>
         <h2 style="text-align:center">
-        <a target="_blank" rel="noopener noreferrer" href="rmorgan_log_browser?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;&amp;form.selected_hosts=$form.selected_drilldown_host$&amp;form.selected_filter=$effective_filter$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
-      
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_ingestion?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_host=$form.selected_drilldown_host$&amp;form.selected_span_1s=form.selected_span_1s">Ingestion</a>
         </h2>
-      </html>
-    </panel>
-    <panel>
-      <title>Open the ingestion dashboard</title>
-      <html>
-        <h1 style="text-align:center;">Log browser</h1>
         <h2 style="text-align:center">
-        <a target="_blank" rel="noopener noreferrer" href="rmorgan_ingestion?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_host=$form.selected_drilldown_host$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
-      
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_log_browser?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;&amp;form.selected_hosts=$form.selected_drilldown_host$&amp;form.selected_span_1s=form.selected_span_1s">Log</a>
         </h2>
       </html>
     </panel>
