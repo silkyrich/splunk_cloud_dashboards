@@ -1,0 +1,312 @@
+<form>
+  <label>Stack metric heart beat checking</label>
+  <fieldset submitButton="false">
+    <input type="time" token="time">
+      <label></label>
+      <default>
+        <earliest>-72h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="selected_resolution">
+      <label>Chart resolution</label>
+      <choice value="100">low (100)</choice>
+      <choice value="250">medium (250)</choice>
+      <choice value="500">high (500)</choice>
+      <choice value="1000">break my browser (1000)</choice>
+      <default>500</default>
+      <initialValue>250</initialValue>
+    </input>
+    <input type="text" token="selected_error_margin">
+      <label>Error margin as %</label>
+      <default>5</default>
+    </input>
+    <input type="text" token="host_filter">
+      <label>Host filter</label>
+      <default>host IN (sh-*, idx-i*, c0m1-*, idm-i*)</default>
+    </input>
+  </fieldset>
+  <row>
+    <panel depends="$debug$">
+      <title></title>
+      <input type="text" token="selected_span_1s" searchWhenChanged="true">
+        <label>selected_span_1s</label>
+        <default>1</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_10s">
+        <label>selected_span_10s</label>
+        <default>10</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_31s">
+        <label>selected_span_31s</label>
+        <default>31</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_60s">
+        <label>selected_span_60s</label>
+        <default>60</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+    </panel>
+    <panel depends="$debug$">
+      <title>Compute timespan</title>
+      <table>
+        <search>
+          <done>
+            <set token="form.selected_span_1s">$result.span_1s$</set>
+            <set token="form.selected_span_10s">$result.span_10s$</set>
+            <set token="form.selected_span_31s">$result.span_31s$</set>
+            <set token="form.selected_span_60s">$result.span_60s$</set>
+          </done>
+          <query>| makeresults 
+| addinfo 
+| eval 
+    duration_seconds=info_max_time-info_min_time,
+    resolution=$selected_resolution$,
+    span_1s=if(duration_seconds/resolution&lt;1,1,round(duration_seconds/resolution,0)),
+    span_10s=if(duration_seconds/resolution&lt;10,10,round(duration_seconds/resolution,0)),
+    span_31s=if(duration_seconds/resolution&lt;31,31,round(duration_seconds/resolution,0)),
+    span_60s=if(duration_seconds/resolution&lt;60,60,round(duration_seconds/resolution,0))   
+| fields span_*</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>The stack is showing the following expected and skipping metrics generation for the roles, the ratio skipped is the most import KPI</title>
+      <chart>
+        <title>For wider time spans reduce the error margin to reveal more skipping</title>
+        <search base="base_modified">
+          <query>| chart count by role expected_readings_state
+| eval ratio_skipped=round(100*skipping/(expected+skipping),0)</query>
+        </search>
+        <option name="charting.axisY2.enabled">1</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.overlayFields">ratio_skipped</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="height">263</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>When did the skipping occur, per role?</title>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_modified">
+          <query>| where expected_readings_state="skipping"
+| timechart fixedrange=false limit=0 dc(host) by role</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="height">418</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <set token="form.selected_role">$click.name2$</set>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="dropdown" token="selected_role">
+        <label>Show role</label>
+        <choice value="sh-*">search heads</choice>
+        <choice value="idx-*">indexers</choice>
+        <choice value="c0m1-*">cluster master</choice>
+        <choice value="idm-*">inputs data manager</choice>
+        <default>sh-*</default>
+      </input>
+      <chart>
+        <title>The $selected_role$ is skipping metrics at the following times</title>
+        <search base="restart_annotation" type="annotation">
+          <query>| where role="$selected_role$"</query>
+        </search>
+        <search base="base_modified">
+          <query>| where expected_readings_state="skipping" AND searchmatch("host=$selected_role$") 
+| appendpipe 
+    [| xyseries _time host count 
+    | eval results="true"] 
+| eventstats max(expected_readings_lower) as skipping_threshold
+| where isnotnull(results)
+| fields + _time skipping_threshold idx* sh* c0m* idm*</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.overlayFields">skipping_threshold</option>
+        <option name="charting.chart.stackMode">default</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="height">444</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="form.selected_hosts">mvdedup(mvappend($form.selected_hosts$,$click.name2$))</eval>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="multiselect" token="selected_hosts">
+        <label>Selected Hosts</label>
+        <fieldForLabel>label</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search base="base_modified">
+          <query>| stats count by host 
+| eval label=host." (".count.")"</query>
+        </search>
+        <prefix>in(host,</prefix>
+        <suffix>)</suffix>
+        <valuePrefix>"</valuePrefix>
+        <valueSuffix>"</valueSuffix>
+        <delimiter>,</delimiter>
+        <choice value="NONE">NONE</choice>
+        <default>NONE</default>
+      </input>
+      <chart>
+        <title>The $selected_host$ is skipping metrics at the following times</title>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_modified">
+          <query>| where $selected_hosts$
+| appendpipe 
+    [| xyseries _time host count 
+    | eval results="true"] 
+| eventstats max(expected_readings_lower) as skipping_threshold
+| where isnotnull(results)
+| fields + _time skipping_threshold idx* sh* c0m* idm*</query>
+        </search>
+        <selection>
+          <set token="window_start">$start$</set>
+          <set token="window_end">$end$</set>
+        </selection>
+        <option name="charting.axisY.minimumNumber">0</option>
+        <option name="charting.chart">line</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="height">303</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$debug$">
+      <title>base modified</title>
+      <table>
+        <search base="base" id="base_modified">
+          <query>| eval 
+    expected_window_size=$form.selected_span_31s$,
+    window_size=max_time-min_time,
+    metrics_frequency=30,
+    expected_readings=expected_window_size/metrics_frequency,
+    expected_readings_lower=floor(expected_readings-expected_readings*($selected_error_margin$/100)),
+    expected_readings_delta_lower=expected_readings_lower-count,
+    expected_readings_state=if(expected_readings_delta_lower&gt;0,"skipping","expected") 
+| eventstats 
+    min(_time) as min_time_edge
+    max(_time) as max_time_edge 
+| where _time != min_time_edge AND _time != max_time_edge</query>
+        </search>
+        <option name="count">10</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">none</option>
+        <option name="percentagesRow">false</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="rowNumbers">false</option>
+        <option name="totalsRow">false</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$debug$">
+      <table>
+        <search id="base">
+          <query>index=_internal sourcetype=splunkd $host_filter$
+    TERM(name=thruput) (TERM(group=thruput) NOT(TERM(ingest_pipe*)) OR TERM(ingest_pipe=0)) 
+| bin _time $selected_span_31s$ 
+| rex field=host "(?&lt;role&gt;\w+)-" 
+| stats count by _time host role</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="count">10</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">none</option>
+        <option name="percentagesRow">false</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="rowNumbers">false</option>
+        <option name="totalsRow">false</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+    <panel depends="$debug$">
+      <title>annotation base</title>
+      <table>
+        <search id="restart_annotation">
+          <query>index=_internal source=*splunkd.log* $host_filter$ starting build 
+| eval annotation_label=host,
+    annotation_category="restart "+role
+| table _time role anno*</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="dropdown" token="selected_drilldown_host">
+        <label>Selected drilldown host</label>
+        <fieldForLabel>host</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search>
+          <query>| makeresults 
+| eval hosts="$form.selected_hosts$",
+    host=split(hosts,",") 
+| mvexpand host</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+      </input>
+    </panel>
+  </row>
+   <row depends="$selected_hosts$">
+    <panel>
+      <title>Open this dashboard but (with your filters)</title>
+      <html>
+        <h1 style="text-align:center;">Ingestion</h1>
+        <h2 style="text-align:center">
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_log_browser?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;&amp;form.selected_hosts=$form.selected_drilldown_host$&amp;form.selected_filter=$effective_filter$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
+      
+        </h2>
+      </html>
+    </panel>
+    <panel>
+      <title>Open the ingestion dashboard</title>
+      <html>
+        <h1 style="text-align:center;">Log browser</h1>
+        <h2 style="text-align:center">
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_ingestion?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_host=$form.selected_drilldown_host$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
+      
+        </h2>
+      </html>
+    </panel>
+  </row>
+</form>
