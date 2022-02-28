@@ -1,10 +1,10 @@
-<form>
-  <label>Metric heart beat checking</label>
-  <fieldset submitButton="false">
+<form version="1.1">
+  <label>Health reporter</label>
+  <fieldset submitButton="false" autoRun="false">
     <input type="time" token="time">
       <label></label>
       <default>
-        <earliest>-72h@h</earliest>
+        <earliest>-7d@h</earliest>
         <latest>now</latest>
       </default>
     </input>
@@ -14,16 +14,18 @@
       <choice value="250">medium (250)</choice>
       <choice value="500">high (500)</choice>
       <choice value="1000">break my browser (1000)</choice>
-      <default>500</default>
+      <default>250</default>
       <initialValue>250</initialValue>
     </input>
-    <input type="text" token="selected_error_margin">
-      <label>Error margin as %</label>
-      <default>5</default>
+    <input type="text" token="svc_allocation">
+      <label>SVC allocation</label>
+      <default>100</default>
     </input>
-    <input type="text" token="host_filter">
-      <label>Host filter</label>
-      <default>host IN (sh-*, idx-i*, c0m1-*, idm-i*)</default>
+    <input type="text" token="selected_hosts">
+      <label>selected_hosts</label>
+      <default>idx-*, sh-i*, idm-*, c0m1-*</default>
+      <prefix>host IN (</prefix>
+      <suffix>)</suffix>
     </input>
   </fieldset>
   <row>
@@ -85,217 +87,123 @@
   </row>
   <row>
     <panel>
-      <title>The stack is showing the following expected and skipping metrics generation for the roles, the ratio skipped is the most import KPI</title>
-      <chart>
-        <title>For wider time spans reduce the error margin to reveal more skipping</title>
-        <search base="base_modified">
-          <query>| chart count by role expected_readings_state
-| eval ratio_skipped=round(100*skipping/(expected+skipping),0)</query>
+      <html>
+        <h1>Health log reporting</h1>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="dropdown" token="selected_health_hosts">
+        <fieldForLabel>host</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search base="health_log">
+          <query>| stats count by host</query>
         </search>
-        <option name="charting.axisY2.enabled">1</option>
+        <label>Select host(s)</label>
+        <default>*</default>
+        <choice value="idx*">All indexers</choice>
+        <choice value="sh*">All search heads</choice>
+        <choice value="c0m1*">CM</choice>
+        <choice value="*">Everything</choice>
+        <prefix>host=</prefix>
+      </input>
+      <input type="text" token="selected_threshold_kpi_errors">
+        <label>Threshold for KPI errors %</label>
+        <default>99.5</default>
+      </input>
+      <chart>
+        <title>Indexers health.log errors and warnings $selected_health_hosts$</title>
+        <search base="health_log">
+          <query>| search $selected_health_hosts$ 
+| fields - host stack 
+| stats sum(*) as * by _time node_path 
+| eval total=coalesce(green,0)+coalesce(yellow,0)+coalesce(red,0) 
+| foreach red green yellow 
+    [| eval
+        &lt;&lt;FIELD&gt;&gt;_pct=round(100*&lt;&lt;FIELD&gt;&gt;/total,2)] 
+| foreach red green yellow 
+    [| eval
+        &lt;&lt;FIELD&gt;&gt;_pct=round(100*&lt;&lt;FIELD&gt;&gt;/total,2)] 
+| eventstats 
+    min(green_pct) as max_green_pct 
+    by node_path 
+| where max_green_pct&lt;=$selected_threshold_kpi_errors$ or isnull(max_green_pct)
+| fields - total yellow green red stack max_green_pct
+| fillnull value=0</query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.axisTitleY2.visibility">collapsed</option>
+        <option name="charting.axisY.maximumNumber">105</option>
         <option name="charting.chart">column</option>
-        <option name="charting.chart.overlayFields">ratio_skipped</option>
         <option name="charting.chart.stackMode">stacked</option>
         <option name="charting.drilldown">none</option>
-        <option name="height">263</option>
-        <option name="refresh.display">progressbar</option>
-      </chart>
-    </panel>
-  </row>
-  <row>
-    <panel>
-      <chart>
-        <title>When did the skipping occur, per role?</title>
-        <search base="base_modified">
-          <query>| where expected_readings_state="skipping"
-| timechart fixedrange=false limit=0 dc(host) by role</query>
-        </search>
-        <search base="restart_annotation" type="annotation"></search>
-        <option name="charting.chart">column</option>
-        <option name="charting.chart.stackMode">stacked</option>
-        <option name="charting.drilldown">all</option>
-        <option name="charting.legend.placement">top</option>
-        <option name="height">418</option>
-        <option name="refresh.display">progressbar</option>
-        <drilldown>
-          <set token="form.selected_role">$click.name2$</set>
-        </drilldown>
-      </chart>
-    </panel>
-  </row>
-  <row>
-    <panel>
-      <input type="dropdown" token="selected_role">
-        <label>Show role</label>
-        <choice value="sh-*">search heads</choice>
-        <choice value="idx-*">indexers</choice>
-        <choice value="c0m1-*">cluster master</choice>
-        <choice value="idm-*">inputs data manager</choice>
-        <default>sh-*</default>
-      </input>
-      <chart>
-        <title>The $selected_role$ is skipping metrics at the following times</title>
-        <search base="base_modified">
-          <query>| where expected_readings_state="skipping" AND searchmatch("host=$selected_role$") 
-| appendpipe 
-    [| xyseries _time host count 
-    | eval results="true"] 
-| eventstats max(expected_readings_lower) as skipping_threshold
-| where isnotnull(results)
-| fields + _time skipping_threshold idx* sh* c0m* idm*</query>
-        </search>
-        <search base="restart_annotation" type="annotation">
-          <query>| where role="$selected_role$"</query>
-        </search>
-        <option name="charting.chart">column</option>
-        <option name="charting.chart.overlayFields">skipping_threshold</option>
-        <option name="charting.chart.stackMode">default</option>
-        <option name="charting.drilldown">all</option>
+        <option name="charting.fieldColors">{"green_pct": 0x00FF00, "red_pct": 0xFF0000, "yellow_pct":0xFFFF00}</option>
         <option name="charting.legend.placement">none</option>
-        <option name="height">444</option>
+        <option name="height">592</option>
         <option name="refresh.display">progressbar</option>
-        <drilldown>
-          <eval token="form.selected_hosts">mvdedup(mvappend($form.selected_hosts$,$click.name2$))</eval>
-        </drilldown>
-      </chart>
-    </panel>
-  </row>
-  <row>
-    <panel>
-      <input type="multiselect" token="selected_hosts">
-        <label>Selected Hosts</label>
-        <fieldForLabel>label</fieldForLabel>
-        <fieldForValue>host</fieldForValue>
-        <search base="base_modified">
-          <query>| stats count by host 
-| eval label=host." (".count.")"</query>
-        </search>
-        <prefix>in(host,</prefix>
-        <suffix>)</suffix>
-        <valuePrefix>"</valuePrefix>
-        <valueSuffix>"</valueSuffix>
-        <delimiter>,</delimiter>
-        <choice value="NONE">NONE</choice>
-        <default>NONE</default>
-      </input>
-      <chart>
-        <title>The $selected_host$ is skipping metrics at the following times</title>
-        <search base="base_modified">
-          <query>| where $selected_hosts$
-| appendpipe 
-    [| xyseries _time host count 
-    | eval results="true"] 
-| eventstats max(expected_readings_lower) as skipping_threshold
-| where isnotnull(results)
-| fields + _time skipping_threshold idx* sh* c0m* idm*</query>
-        </search>
-        <search base="restart_annotation" type="annotation"></search>
+        <option name="trellis.enabled">1</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trellis.splitBy">node</option>
         <selection>
           <set token="window_start">$start$</set>
           <set token="window_end">$end$</set>
         </selection>
-        <option name="charting.axisY.minimumNumber">0</option>
-        <option name="charting.chart">line</option>
-        <option name="charting.legend.placement">top</option>
-        <option name="height">303</option>
-        <option name="refresh.display">progressbar</option>
       </chart>
     </panel>
   </row>
   <row>
     <panel depends="$debug$">
-      <title>base modified</title>
       <table>
-        <search base="base" id="base_modified">
-          <query>| eval 
-    expected_window_size=$form.selected_span_31s$,
-    window_size=max_time-min_time,
-    metrics_frequency=30,
-    expected_readings=expected_window_size/metrics_frequency,
-    expected_readings_lower=floor(expected_readings-expected_readings*($selected_error_margin$/100)),
-    expected_readings_delta_lower=expected_readings_lower-count,
-    expected_readings_state=if(expected_readings_delta_lower&gt;0,"skipping","expected") 
-| eventstats 
-    min(_time) as min_time_edge
-    max(_time) as max_time_edge 
-| where _time != min_time_edge AND _time != max_time_edge</query>
-        </search>
-        <option name="count">10</option>
-        <option name="dataOverlayMode">none</option>
-        <option name="drilldown">none</option>
-        <option name="percentagesRow">false</option>
-        <option name="refresh.display">progressbar</option>
-        <option name="rowNumbers">false</option>
-        <option name="totalsRow">false</option>
-        <option name="wrap">true</option>
-      </table>
-    </panel>
-  </row>
-  <row>
-    <panel depends="$debug$">
-      <table>
-        <search id="base">
-          <query>index=_internal sourcetype=splunkd $host_filter$
-    TERM(name=thruput) (TERM(group=thruput) NOT(TERM(ingest_pipe*)) OR TERM(ingest_pipe=0)) 
-| bin _time $selected_span_31s$ 
+        <title>Indexers health.log errors and warnings</title>
+        <search id="health_log">
+          <query>| tstats count where index=_internal NOT TERM(node_path=splunkd) TERM(color=*) $selected_hosts$ by _time host PREFIX(color=) PREFIX(node_path=) $selected_span_60s$ 
+| rename color= as color
+    node_path= as node_path 
+| eval {color}=count 
+| fields - count color 
+| stats list(*) as * by _time host node_path 
+| rex field=host "(?&lt;role&gt;\w+)-"
+
+
+    ```index=_internal source=*health.log* TERM(node_path=*) TERM(color=*) $selected_hosts$ 
+| stats 
+    count(eval(color="green")) as green
+    count(eval(color="yellow")) as yellow
+    count(eval(color="red")) as red
+    by _time host node_path 
 | rex field=host "(?&lt;role&gt;\w+)-" 
-| stats count by _time host role</query>
-          <earliest>$time.earliest$</earliest>
-          <latest>$time.latest$</latest>
-          <sampleRatio>1</sampleRatio>
-        </search>
-        <option name="count">10</option>
-        <option name="dataOverlayMode">none</option>
-        <option name="drilldown">none</option>
-        <option name="percentagesRow">false</option>
-        <option name="refresh.display">progressbar</option>
-        <option name="rowNumbers">false</option>
-        <option name="totalsRow">false</option>
-        <option name="wrap">true</option>
-      </table>
-    </panel>
-    <panel depends="$debug$">
-      <title>annotation base</title>
-      <table>
-        <search id="restart_annotation">
-          <query>index=_internal source=*splunkd.log* $host_filter$ starting build 
-| eval annotation_label=host,
-    annotation_category="restart "+role
-| table _time role anno*</query>
+| eval node=substr(node,9,len(node)) ```</query>
           <earliest>$time.earliest$</earliest>
           <latest>$time.latest$</latest>
         </search>
         <option name="drilldown">none</option>
         <option name="refresh.display">progressbar</option>
       </table>
-    </panel>
-  </row>
-  <row>
-    <panel>
-      <input type="dropdown" token="selected_drilldown_host">
-        <label>Selected drilldown host</label>
-        <fieldForLabel>host</fieldForLabel>
-        <fieldForValue>host</fieldForValue>
-        <search>
-          <query>| makeresults 
-| eval hosts="$form.selected_hosts$",
-    host=split(hosts,",") 
-| mvexpand host</query>
-          <earliest>-24h@h</earliest>
-          <latest>now</latest>
-        </search>
-      </input>
     </panel>
   </row>
   <row depends="$selected_hosts$">
-        <panel>
-      <title>Drill down to dashboards</title>
+    <panel>
+      <title>Open this dashboard but (with your filters)</title>
+      <input type="dropdown" token="selected_host">
+        <label>Select host</label>
+        <fieldForLabel>host</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search base="health_log">
+          <query>| stats count by host</query>
+        </search>
+      </input>
       <html>
+        <h1 style="text-align:center;">Log browser</h1>
         <h2 style="text-align:center">
-        <a target="_blank" rel="noopener noreferrer" href="rmorgan_ingestion?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_host=$form.selected_drilldown_host$&amp;form.selected_span_1s=form.selected_span_1s">Ingestion</a>
-        </h2>
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_log_browser?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;&amp;form.selected_hosts=$form.selected_host$&amp;form.selected_span_1s=form.selected_span_1s">Log browser</a>
+              </h2>
+        <h1 style="text-align:center;">Ingestion</h1>
         <h2 style="text-align:center">
-        <a target="_blank" rel="noopener noreferrer" href="rmorgan_log_browser?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;&amp;form.selected_hosts=$form.selected_drilldown_host$&amp;form.selected_span_1s=form.selected_span_1s">Log</a>
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_ingestion?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_host=$form.selected_host$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
+      
         </h2>
       </html>
     </panel>
