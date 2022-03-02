@@ -1,0 +1,489 @@
+<form>
+  <label>Indexer performance KPIs</label>
+  <init>
+    <set token="splunkd">index=_internal</set>
+    <set token="metrics">index=_internal</set>
+    <set token="internal">index=_internal</set>
+    <set token="remote">index=_internal source=*remote_searches.log*</set>
+    <set token="blocked_queues">index=_internal</set>
+    <set token="introspection">index=_introspection</set>
+  </init>
+  <fieldset submitButton="false">
+    <input type="time" token="time">
+      <label></label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="selected_tier">
+      <label>Select tier</label>
+      <choice value="idx*">indexers</choice>
+      <choice value="sh*">search heads</choice>
+      <choice value="*">both</choice>
+      <default>idx*</default>
+    </input>
+    <input type="text" token="selected_stack">
+      <label>Wildcard hosts</label>
+      <default>NO STACK SELECTED</default>
+      <change>
+        <condition match="$value$=&quot;NO STACK SELECTED&quot;">
+          <unset token="selected_stack"></unset>
+        </condition>
+        <condition>
+          <set token="selected_stack">$value$</set>
+        </condition>
+      </change>
+    </input>
+    <input type="dropdown" token="selected_resolution">
+      <label>Chart resolution</label>
+      <choice value="100">low (100)</choice>
+      <choice value="250">medium (250)</choice>
+      <choice value="500">high (500)</choice>
+      <choice value="1000">break my browser (1000)</choice>
+      <default>250</default>
+      <initialValue>250</initialValue>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <html>
+  <h1 id="introduction">Introduction</h1>
+
+</html>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$debug$">
+      <title></title>
+      <input type="text" token="selected_span_1s" searchWhenChanged="true">
+        <label>selected_span_1s</label>
+        <default>1</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_10s">
+        <label>selected_span_10s</label>
+        <default>10</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_31s">
+        <label>selected_span_31s</label>
+        <default>31</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_60s">
+        <label>selected_span_60s</label>
+        <default>60</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+    </panel>
+    <panel depends="$debug$">
+      <title>Compute timespan</title>
+      <table>
+        <search>
+          <done>
+            <set token="form.selected_span_1s">$result.span_1s$</set>
+            <set token="form.selected_span_10s">$result.span_10s$</set>
+            <set token="form.selected_span_31s">$result.span_31s$</set>
+            <set token="form.selected_span_60s">$result.span_60s$</set>
+          </done>
+          <query>| makeresults 
+| addinfo 
+| eval 
+    duration_seconds=info_max_time-info_min_time,
+    resolution=$selected_resolution$,
+    span_1s=if(duration_seconds/resolution&lt;1,1,round(duration_seconds/resolution,0)),
+    span_10s=if(duration_seconds/resolution&lt;10,10,round(duration_seconds/resolution,0)),
+    span_31s=if(duration_seconds/resolution&lt;31,31,round(duration_seconds/resolution,0)),
+    span_60s=if(duration_seconds/resolution&lt;60,60,round(duration_seconds/resolution,0))   
+| fields span_*</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Search concurrency for indexers</title>
+      <chart>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_concurrency">
+          <query>| table _time search_concurrency_*</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="height">292</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Search count per indexer</title>
+      <chart>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_concurrency">
+          <query>| table _time *_count
+| fields - concurrency_count</query>
+        </search>
+        <option name="charting.axisY.scale">log</option>
+        <option name="charting.chart">line</option>
+        <option name="charting.chart.stackMode">default</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Time waiting on cache for SPL searches</title>
+      <chart>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_concurrency">
+          <query>| table _time search_spl_* search_tstats_*</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Read \ Write kb/s</title>
+      <input type="dropdown" token="selected_kb_kpi">
+        <label>Show KPI</label>
+        <choice value="kb_ps">Read + Write</choice>
+        <choice value="writes_kb_ps">Write</choice>
+        <choice value="read_kb_ps">Read</choice>
+        <default>kb_ps</default>
+      </input>
+      <chart>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_io">
+          <query>| xyseries _time device $selected_kb_kpi$</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="height">370</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>IOPS</title>
+      <input type="dropdown" token="selected_ps_kpi">
+        <label>Show KPI</label>
+        <choice value="iops">Read + Write</choice>
+        <choice value="writes_ps">Write</choice>
+        <choice value="read_ps">Read</choice>
+        <default>kb_ps</default>
+      </input>
+      <chart>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_io">
+          <query>| xyseries _time device $selected_ps_kpi$</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Service Time</title>
+      <input type="dropdown" token="selected_ms_kpi">
+        <label>Show KPI</label>
+        <choice value="avg_service_ms">Average service ms</choice>
+        <choice value="avg_total_ms">Total service ms</choice>
+        <default>avg_service_ms</default>
+      </input>
+      <chart>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_io">
+          <query>| xyseries _time device $selected_ms_kpi$</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">top</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Splunkd IOwait</title>
+      <chart>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_iowait">
+          <query/>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.chart.nullValueMode">gaps</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.labelStyle.overflowMode">ellipsisMiddle</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="height">274</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>Counting metrics.log heart beats</title>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="event_delay_base">
+          <query>| timechart $selected_span_1s$ sum(event_count) by source</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="dropdown" token="selected_delay_agg">
+        <label>Use aggregator</label>
+        <choice value="max">max</choice>
+        <choice value="avg">avg</choice>
+        <choice value="p99">p99</choice>
+        <default>p99</default>
+      </input>
+      <chart>
+        <title>Event delay on metrics heart beats log</title>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="event_delay_base">
+          <query>| timechart $selected_span_1s$ $selected_delay_agg$(event_delay) by source</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="height">336</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="dropdown" token="selected_queue_agg">
+        <label>Show KPI</label>
+        <choice value="current_size_kb_max">Max</choice>
+        <choice value="current_size_kb_p99">p99</choice>
+        <choice value="current_size_kb_avg">Average</choice>
+        <default>current_size_kb_p99</default>
+      </input>
+      <chart>
+        <title>Indexer queue filling</title>
+        <search base="restart_annotation" type="annotation"></search>
+        <search base="base_pipelines">
+          <query>
+| eval fill_pct=round(100*$selected_queue_agg$/max_size_kb,2),
+    label=name 
+| xyseries _time label fill_pct</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">top</option>
+        <option name="height">422</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$debug$">
+      <title>base_iostats</title>
+      <table>
+        <search id="base_io">
+          <query>| tstats 
+    avg(data.avg_service_ms) as avg_service_ms
+    avg(data.avg_total_ms) as avg_total_ms
+    avg(data.cpu_pct) as cpu_pct
+    avg(data.reads_kb_ps) as reads_kb_ps
+    avg(data.writes_kb_ps) as writes_kb_ps
+    avg(data.reads_ps) as reads_ps
+    avg(data.writes_ps) as writes_ps
+    where $introspection$ host=idx*.$selected_stack$.* component=iostats data.device!=ram*
+    by _time data.device $selected_span_31s$ 
+| rename data.device as device 
+| eval iops=reads_ps+writes_ps,
+    kb_ps=writes_kb_ps+reads_kb_ps</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel depends="$debug$">
+      <title>base_concurrency</title>
+      <table>
+        <search id="base_concurrency">
+          <query>| tstats prestats=true 
+    dc(host)
+    max(PREFIX(active_searches=))
+    mode(PREFIX(active_searches=))
+    p99.9(PREFIX(active_searches=)) 
+    p99(PREFIX(active_searches=)) 
+    p75(PREFIX(active_searches=)) 
+    avg(PREFIX(active_searches=)) 
+    where 
+    $remote$ host=idx-*.$selected_stack$.* TERM(active_searches=*) 
+    by _time $selected_span_1s$ 
+| eval column=coalesce(column,"concurrency") 
+| tstats prestats=true append=true
+    count
+    where 
+    $remote$ host=idx-*.$selected_stack$.* NOT TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_rawdata_bucketcache_miss_wait=0.000) TERM(search_index_bucketcache_miss_wait=0.000) TERM(search_index_bucketcache_miss_wait=*) 
+    by _time $selected_span_1s$ 
+| eval column=coalesce(column,"spl_inside_cache") 
+| tstats prestats=true append=true
+    count
+    sum(PREFIX(search_index_bucketcache_miss_wait=)) 
+    sum(PREFIX(search_rawdata_bucketcache_miss_wait=)) 
+    where 
+    $remote$ host=idx-*.$selected_stack$.* NOT TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_index_bucketcache_miss_wait=*) NOT(TERM(search_rawdata_bucketcache_miss_wait=0.000) OR TERM(search_rawdata_bucketcache_miss_wait=0.000)) 
+    by _time $selected_span_1s$ 
+| eval column=coalesce(column,"spl_outside_cache") 
+| tstats prestats=true append=true
+    count
+    where 
+    $remote$ host=idx-*.$selected_stack$.* TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_index_bucketcache_miss_wait=0.000) TERM(search_index_bucketcache_miss_wait=*) 
+    by _time $selected_span_1s$ 
+| eval column=coalesce(column,"tstats_inside_cache") 
+| tstats prestats=true append=true
+    count
+    sum(PREFIX(search_index_bucketcache_miss_wait=)) 
+    where 
+    $remote$ host=idx-*.$selected_stack$.* TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_index_bucketcache_miss_wait=*) NOT(TERM(search_rawdata_bucketcache_miss_wait=0.000)) 
+    by _time host $selected_span_1s$ 
+| eval column=coalesce(column,"tstats_outside_cache") 
+| stats
+    count
+    dc(host) as search_cluster_size
+    max(PREFIX(active_searches=)) as search_concurrency_max
+    mode(PREFIX(active_searches=)) as search_concurrency_mode
+    p99.9(PREFIX(active_searches=)) as search_concurrency_p99_9
+    p99(PREFIX(active_searches=)) as search_concurrency_p99
+    p75(PREFIX(active_searches=)) as search_concurrency_p75
+    avg(PREFIX(active_searches=)) as search_concurrency_avg
+    sum(PREFIX(search_index_bucketcache_miss_wait=)) as index_miss_wait
+    sum(PREFIX(search_rawdata_bucketcache_miss_wait=)) as rawdata_miss_wait
+    by _time column 
+| eval {column}_count=count 
+| foreach *_miss_wait 
+    [| eval search_{column}_&lt;&lt;MATCHSTR&gt;&gt;_wait_sum=&lt;&lt;FIELD&gt;&gt;] 
+| fields - count index_miss_wait rawdata_miss_wait column 
+| eval search_cluster_size=if(search_cluster_size=0,null(),search_cluster_size) 
+| stats 
+    list(*) as * by _time</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="count">10</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">none</option>
+        <option name="percentagesRow">false</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="rowNumbers">false</option>
+        <option name="totalsRow">false</option>
+        <option name="wrap">true</option>
+      </table>
+    </panel>
+    <panel depends="$debug$">
+      <title>base IOwait</title>
+      <table>
+        <search id="base_iowait">
+          <query>| tstats 
+    max(data.max_cpus_pct) as max_cpu_pct_max
+    p75(data.max_cpus_pct) as max_cpu_pct_p75
+    p99(data.max_cpus_pct) as max_cpu_pct_p99
+    avg(data.max_cpus_pct) as max_cpu_pct_avg
+    avg(data.avg_cpu_pct) as avg_cpu_pct_avg
+    mode(data.avg_cpu_pct) as avg_cpu_pct_mode
+    p99(data.avg_cpu_pct) as avg_cpu_pct_p99
+    where $introspection$ component::iowait host=idx*.$selected_stack$.* data.avg_cpu_pct &lt; 2000
+    by _time $selected_span_10s$</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$debug$">
+      <table>
+        <title>Metrics heartbeat</title>
+        <search id="event_delay_base">
+          <query>| tstats 
+    min(_indextime) as min_index_time 
+    max(_indextime) as max_index_time 
+    count as event_count where $metrics$ sourcetype=splunkd  host=idx*.$selected_stack$.*
+    TERM(name=thruput) (TERM(group=thruput) NOT(TERM(ingest_pipe*)) OR TERM(ingest_pipe=0)) by _time source span=1s
+| eval event_delay=max_index_time-_time</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel depends="$debug$">
+      <title></title>
+      <table>
+        <title>base_pipeline</title>
+        <search id="base_pipelines">
+          <query>| tstats 
+    max(PREFIX(current_size_kb=)) as current_size_kb_max
+    p99(PREFIX(current_size_kb=)) as current_size_kb_p99
+    avg(PREFIX(current_size_kb=)) as current_size_kb_avg
+    where $blocked_queues$ host=idx-i*.$selected_stack$.* sourcetype=splunkd TERM(group=queue) TERM(name=*) 
+    by _time PREFIX(name=) PREFIX(max_size_kb=) $selected_span_31s$ 
+| rename name= as name,
+    max_size_kb= as max_size_kb</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel depends="$debug$">
+      <title>annotation base</title>
+      <table>
+        <search id="restart_annotation">
+          <query>$splunkd$ source=*splunkd.log* host=idx*.$selected_stack$.* starting build 
+| eval annotation_label=host,
+    annotation_category="restarted"
+| table _time role anno*</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>
