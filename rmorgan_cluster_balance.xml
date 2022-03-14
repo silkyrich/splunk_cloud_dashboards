@@ -1,0 +1,483 @@
+<form>
+  <label>Cluster balance and stability</label>
+  <init>
+    <set token="index_splunkd">index=_internal sourcetype=splunkd</set>
+    <set token="index_introspection">index=_introspection</set>
+    <set token="index_metrics">index=_internal sourcetype=splunkd</set>
+    <set token="index_remote">index=_internal source=*remote_searches.log*</set>
+  </init>
+  <fieldset submitButton="false">
+    <input type="time" token="time">
+      <label></label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="selected_resolution">
+      <label>Chart resolution</label>
+      <choice value="100">low (100)</choice>
+      <choice value="250">medium (250)</choice>
+      <choice value="500">high (500)</choice>
+      <choice value="1000">break my browser (1000)</choice>
+      <default>250</default>
+      <initialValue>250</initialValue>
+    </input>
+  
+    <input type="text" token="selected_limit">
+      <label>Select limit for charts</label>
+      <default>25</default>
+      <prefix>limit=</prefix>
+    </input>
+  </fieldset>
+  <row>
+    <panel depends="$debug$">
+      <title></title>
+      <input type="text" token="selected_span_1s" searchWhenChanged="true">
+        <label>selected_span_1s</label>
+        <default>1</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_10s">
+        <label>selected_span_10s</label>
+        <default>10</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_31s">
+        <label>selected_span_31s</label>
+        <default>31</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_60s">
+        <label>selected_span_60s</label>
+        <default>60</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_1hr">
+        <label>selected_span_1hr</label>
+        <default>3600</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+    </panel>
+    <panel depends="$debug$">
+      <title>Compute timespan</title>
+      <table>
+        <search>
+          <done>
+            <set token="form.selected_span_1s">$result.span_1s$</set>
+            <set token="form.selected_span_10s">$result.span_10s$</set>
+            <set token="form.selected_span_31s">$result.span_31s$</set>
+            <set token="form.selected_span_60s">$result.span_60s$</set>
+            <set token="form.selected_span_1hr">$result.span_1hr$</set>
+          </done>
+          <query>| makeresults 
+| addinfo 
+| eval 
+    duration_seconds=info_max_time-info_min_time,
+    resolution=$selected_resolution$,
+    span_1s=if(duration_seconds/resolution&lt;1,1,round(duration_seconds/resolution,0)),
+    span_10s=if(duration_seconds/resolution&lt;10,10,round(duration_seconds/resolution,0)),
+    span_31s=if(duration_seconds/resolution&lt;31,31,round(duration_seconds/resolution,0)),
+    span_60s=if(duration_seconds/resolution&lt;60,60,round(duration_seconds/resolution,0)),
+    span_1hr=if(duration_seconds/resolution&lt;(60*60),(60*60),round(duration_seconds/resolution,0))      
+| fields span_*
+| fields - _time</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>Normalised stdev for each KPI</title>
+        <search base="base">
+          <query>| fields - age_days launch* virtual*
+| fillnull value=0 
+| timechart $selected_span_31s$
+    avg(*) as *_avg
+    stdev(*) as *_stdev 
+| foreach *_avg 
+    [| eval &lt;&lt;MATCHSTR&gt;&gt;_normalized=round(&lt;&lt;MATCHSTR&gt;&gt;_stdev/&lt;&lt;MATCHSTR&gt;&gt;_avg,2)
+        ] 
+| table _time *_normalized 
+| rename *_normalized as *, churn_* as *</query>
+        </search>
+        <option name="charting.axisY.scale">linear</option>
+        <option name="charting.chart">line</option>
+        <option name="charting.chart.overlayFields">stdev(churn_downloaded_gb)</option>
+        <option name="charting.drilldown">all</option>
+        <option name="height">458</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <set token="form.selected_kpi">$click.name2$</set>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="text" token="selected_anomaly_threshold">
+        <label>Threshold for anomaly</label>
+        <default>1.5</default>
+      </input>
+      <chart>
+        <title>Indexers by their delta from average</title>
+        <search base="base">
+          <query>| fillnull age_days value="?" 
+| eventstats 
+    stdev(*) as stack_*_stdev 
+    avg(*) as stack_*_avg
+    by _time
+| rename age_days as _age_days 
+| foreach stack_*_stdev 
+    [| eval 
+        "stack_&lt;&lt;MATCHSTR&gt;&gt;_stdev"=coalesce('stack_&lt;&lt;MATCHSTR&gt;&gt;_stdev',0),
+        "stack_&lt;&lt;MATCHSTR&gt;&gt;_avg"=coalesce('stack_&lt;&lt;MATCHSTR&gt;&gt;_avg',0),
+        "&lt;&lt;MATCHSTR&gt;&gt;_anomoly_score"=if(abs('stack_&lt;&lt;MATCHSTR&gt;&gt;_avg'-'&lt;&lt;MATCHSTR&gt;&gt;')/'stack_&lt;&lt;MATCHSTR&gt;&gt;_stdev'&gt;$selected_anomaly_threshold$,1,0)] 
+| stats 
+    min(_time) as min_time
+    max(_time) as max_time
+    sum(*_anomoly_score) as a_*
+    by host _age_days 
+| rename _age_days as age_days, churn_* as * 
+| eval duration_seconds=(max_time-min_time)/$form.selected_span_31s$ 
+| foreach a_* 
+    [| eval &lt;&lt;MATCHSTR&gt;&gt;=&lt;&lt;FIELD&gt;&gt;/duration_seconds
+        ] 
+| fields - m*_time a_* duration_seconds
+| sort - age_days</query>
+        </search>
+        <option name="charting.axisY2.enabled">1</option>
+        <option name="charting.axisY2.scale">linear</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.overlayFields">age_days</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="height">324</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="host_index">mvfind($form.selected_hosts$,$click.value$)</eval>
+          <eval token="form.selected_hosts">if(isnull($host_index$), mvdedup(mvappend($form.selected_hosts$,$click.value$)),mvappend(mvindex($form.selected_hosts$,0,$host_index$-1),mvindex($form.selected_hosts$,$host_index$+1,mvcount($form.selected_hosts$))))</eval>
+          <eval token="form.selected_kpi">$click.name2$</eval>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Count of hosts in the cluster</title>
+      <chart>
+        <search base="base">
+          <query>| eventstats 
+    min(_time) as min_time
+    max(_time) as max_time
+    by host 
+| eval 
+    duration_seconds=max_time-min_time 
+| sort + min_time 
+| bin _time $selected_span_31s$ 
+| chart limit=50 count by _time host 
+| foreach * 
+    [| eval &lt;&lt;FIELD&gt;&gt;=if(&lt;&lt;FIELD&gt;&gt;=0,null(),&lt;&lt;FIELD&gt;&gt;) ]</query>
+        </search>
+        <option name="charting.chart">area</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.layout.splitSeries">0</option>
+        <option name="height">303</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="host_index">mvfind($form.selected_hosts$,$click.name2$)</eval>
+          <eval token="form.selected_hosts">if(isnull($host_index$), mvdedup(mvappend($form.selected_hosts$,$click.name2$)),mvappend(mvindex($form.selected_hosts$,0,$host_index$-1),mvindex($form.selected_hosts$,$host_index$+1,mvcount($form.selected_hosts$))))</eval>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>$debug_value$</title>
+      <input type="multiselect" token="selected_hosts">
+        <label>Select hosts</label>
+        <fieldForLabel>host</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search base="base">
+          <query>| stats count by host</query>
+        </search>
+        <prefix>host IN (</prefix>
+        <suffix>)</suffix>
+        <delimiter>, </delimiter>
+        <change>
+          <condition match="mvcount('form.selected_hosts')!=0">
+            <set token="debug_value">$value$</set>
+          </condition>
+          <condition>
+            <set token="selected_hosts">host=*</set>
+          </condition>
+        </change>
+      </input>
+      <input type="dropdown" token="selected_kpi">
+        <label>Select KPI</label>
+        <fieldForLabel>column</fieldForLabel>
+        <fieldForValue>column</fieldForValue>
+        <search base="base">
+          <query>| head 1
+| fields - _time age_days instance_type host label launch_time_epoch report stack
+| transpose
+| fields + column</query>
+        </search>
+        <default>cores_p99_9</default>
+      </input>
+      <input type="multiselect" token="selected_overlay">
+        <label>Show overlay</label>
+        <choice value="_stack_average as stack_average">Average</choice>
+        <choice value="_stack_sum as stack_sum">Sum</choice>
+        <choice value="_stack_stdev as stack_stdev">Stdev</choice>
+        <choice value="_stack_p10 as stack_p10">p10</choice>
+        <prefix>| rename </prefix>
+        <delimiter>,  </delimiter>
+      </input>
+      <chart>
+        <title>Selected indexers vs theaverage</title>
+        <search base="base">
+          <query>| eval at_{host}=if(searchmatch("$selected_hosts$"),'$selected_kpi$',null()) 
+| timechart $selected_span_31s$ 
+    avg(at_*) as * 
+    avg($selected_kpi$) as _stack_average
+    sum($selected_kpi$) as _stack_sum
+    stdev($selected_kpi$) as _stack_stdev 
+    p10($selected_kpi$) as _stack_p10 
+| foreach * 
+    [| eval "&lt;&lt;FIELD&gt;&gt;"=if('&lt;&lt;FIELD&gt;&gt;'=0,null(),'&lt;&lt;FIELD&gt;&gt;') 
+        ]
+$selected_overlay$</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.chart.overlayFields">stack_average</option>
+        <option name="charting.drilldown">all</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <set token="form.selected_host">$click.name2$</set>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="text" token="selected_host">
+        <label>Host</label>
+      </input>
+      <single>
+        <search base="base">
+          <query>| where host="$selected_host$" 
+| stats 
+    min(_time) as min_time
+    max(_time) as max_time
+    by host
+| eval label="Drill down for host performance data"
+| table label *</query>
+        </search>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <link target="_blank">/app/coresearch/io_information_for_host_iostats_iowait_iotop?form.selected_host=$row.host$&amp;form.time.earliest=$row.min_time$&amp;form.time.latest=$row.max_time$&amp;form.selected_</link>
+        </drilldown>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$debug$">
+      <title>base churn</title>
+      <table>
+        <title>base</title>
+        <search id="base">
+          <query>| tstats prestats=true 
+    avg(data.cpu_idle_pct) as cpu_avg_idle
+    p25(data.cpu_idle_pct) as cpu_p75_idle
+    p10(data.cpu_idle_pct) as cpu_p90_idle
+    p05(data.cpu_idle_pct) as cpu_p95_idle
+    p01(data.cpu_idle_pct) as cpu_p99_idle
+    p00.5(data.cpu_idle_pct) as cpu_p99_1_idle 
+    p00.1(data.cpu_idle_pct) as cpu_p99_9_idle
+    latest(data.splunk_version) as splunk_version
+    latest(data.cpu_count) as cpu_count
+    latest(data.virtual_cpu_count) as virtual_cpu_count
+    avg(data.normalized_load_avg_1min) as normalized_load_avg_avg
+    p75(data.normalized_load_avg_1min) as normalized_load_avg_p75
+    p90(data.normalized_load_avg_1min) as normalized_load_avg_p90
+    p95(data.normalized_load_avg_1min) as normalized_load_avg_p95
+    p99(data.normalized_load_avg_1min) as normalized_load_avg_p99
+    p99.9(data.normalized_load_avg_1min) as normalized_load_avg_p99_9
+    min(data.cpu_idle_pct) as cpu_max_idle
+    avg(data.mem_used) as mem_mb_used_avg
+    p99(data.mem_used) as mem_mb_used_p99
+    max(data.mem_used) as mem_mb_used_max
+    max(data.mem) as mem_mb_total
+    where $index_introspection$ component=hostwide  host=idx* 
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report, "hostwide") 
+| tstats prestats=true append=true
+    ``` bucketroller - this tells us how many buckets are being generated by the platform ``` 
+    count
+    sum(PREFIX(bytes_evicted=)) 
+    sum(PREFIX(elapsed_ms=)) 
+    where
+    $index_splunkd$ host=idx* CacheManager TERM(bytes_evicted=*) TERM(elapsed_ms=*) 
+    
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report, "churn_deleted") 
+| tstats prestats=true append=true
+    count 
+    sum(PREFIX(elapsed_ms=))
+    sum(PREFIX(kb=))
+    where $index_splunkd$ cachemanager cachemanagerDownloadExecutorWorker TERM(action=download) TERM(status=succeeded) 
+    
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report, "churn_downloaded") 
+| tstats prestats=true append=true
+    count 
+    sum(PREFIX(elapsed_ms=))
+    sum(PREFIX(kb=))
+    where $index_splunkd$ cachemanager cachemanagerUploadExecutorWorker TERM(action=upload) TERM(status=succeeded) 
+    
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report, "churn_uploaded") 
+| tstats prestats=true append=true 
+    ``` bucketroller - this tells us how many buckets are being generated by the platform ``` 
+    count
+    sum(PREFIX(bucketsize=)) 
+    dc(PREFIX(idx=))
+    where 
+    $index_splunkd$ sourcetype=splunkd host=idx* hotbucketroller finished moving hot to warm TERM(bucketSize=*) TERM(caller=*) TERM(_maxHotBucketSize=*)
+    
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report, "churn_created") 
+| tstats prestats=true append=true
+    max(PREFIX(active_searches=))
+    mode(PREFIX(active_searches=))
+    p99.9(PREFIX(active_searches=)) 
+    p99(PREFIX(active_searches=)) 
+    p75(PREFIX(active_searches=)) 
+    avg(PREFIX(active_searches=)) 
+    dc(host)
+    where 
+    $index_remote$ TERM(active_searches=*)  host=idx*
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report,"concurrency") 
+| tstats prestats=true append=true
+    count
+    where 
+    $index_remote$ NOT TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_rawdata_bucketcache_miss_wait=0.000) TERM(search_index_bucketcache_miss_wait=0.000) TERM(search_index_bucketcache_miss_wait=*)  host=idx*
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report,"spl_inside_cache") 
+| tstats prestats=true append=true
+    count
+    sum(PREFIX(search_index_bucketcache_miss_wait=)) 
+    sum(PREFIX(search_rawdata_bucketcache_miss_wait=)) 
+    where 
+    $index_remote$ NOT TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_index_bucketcache_miss_wait=*) NOT(TERM(search_rawdata_bucketcache_miss_wait=0.000) OR TERM(search_rawdata_bucketcache_miss_wait=0.000))  host=idx*
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report,"spl_outside_cache") 
+| tstats prestats=true append=true
+    count
+    where 
+    $index_remote$ TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_index_bucketcache_miss_wait=0.000) TERM(search_index_bucketcache_miss_wait=*)  host=idx*
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report,"tstats_inside_cache") 
+| tstats prestats=true append=true
+    count
+    sum(PREFIX(search_index_bucketcache_miss_wait=)) 
+    where 
+    $index_remote$ TERM(tstats) TERM(drop_count=*) TERM(scan_count=*) TERM(eliminated_buckets=*) TERM(considered_events=*) TERM(decompressed_slices=*) TERM(events_count=*) TERM(total_slices=*) TERM(considered_buckets=*) TERM(search_rawdata_bucketcache_error=*) TERM(search_rawdata_bucketcache_miss=*) TERM(search_index_bucketcache_error=*) TERM(search_index_bucketcache_hit=*) TERM(search_index_bucketcache_miss=*) TERM(search_rawdata_bucketcache_hit=*) TERM(search_rawdata_bucketcache_miss_wait=*) TERM(search_index_bucketcache_miss_wait=*) NOT(TERM(search_rawdata_bucketcache_miss_wait=0.000))  host=idx*
+    by _time host $selected_span_10s$ 
+| eval report=coalesce(report,"tstats_outside_cache") 
+| stats 
+    ``` count and elapsed_ms are featured in multiple reports and needs to be reassigned ```
+    count
+    ``` search metrics ```
+    dc(host) as search_cluster_size
+    max(PREFIX(active_searches=)) as search_concurrency_max
+    mode(PREFIX(active_searches=)) as search_concurrency_mode
+    p99.9(PREFIX(active_searches=)) as search_concurrency_p99_9
+    p99(PREFIX(active_searches=)) as search_concurrency_p99
+    p75(PREFIX(active_searches=)) as search_concurrency_p75
+    avg(PREFIX(active_searches=)) as search_concurrency_avg
+    sum(PREFIX(search_index_bucketcache_miss_wait=)) as index_miss_wait
+    sum(PREFIX(search_rawdata_bucketcache_miss_wait=)) as rawdata_miss_wait
+    ``` cache churn ```
+    dc(PREFIX(idx=)) as churn_created_dc_indexes
+    sum(PREFIX(elapsed_ms=)) as elapsed_ms 
+    ``` bucket roller ```
+    sum(PREFIX(bucketsize=)) as churn_created_bytes
+    ``` cache manager download ```
+    sum(PREFIX(kb=)) as kb
+    ``` cache manager eviction ```
+    sum(PREFIX(bytes_evicted=)) as churn_deleted_bytes
+    ``` hostwide data ```
+    avg(data.cpu_idle_pct) as cpu_avg_idle
+    p25(data.cpu_idle_pct) as cpu_p75_idle
+    p10(data.cpu_idle_pct) as cpu_p90_idle
+    p05(data.cpu_idle_pct) as cpu_p95_idle
+    p01(data.cpu_idle_pct) as cpu_p99_idle
+    p00.5(data.cpu_idle_pct) as cpu_p99_1_idle 
+    p00.1(data.cpu_idle_pct) as cpu_p99_9_idle
+    latest(data.splunk_version) as splunk_version
+    latest(data.cpu_count) as cpu_count
+    latest(data.virtual_cpu_count) as virtual_cpu_count
+    avg(data.normalized_load_avg_1min) as normalized_load_avg_avg
+    p75(data.normalized_load_avg_1min) as normalized_load_avg_p75
+    p90(data.normalized_load_avg_1min) as normalized_load_avg_p90
+    p95(data.normalized_load_avg_1min) as normalized_load_avg_p95
+    p99(data.normalized_load_avg_1min) as normalized_load_avg_p99
+    p99.9(data.normalized_load_avg_1min) as normalized_load_avg_p99_9
+    min(data.cpu_idle_pct) as cpu_max_idle
+    avg(data.mem_used) as mem_mb_used_avg
+    p99(data.mem_used) as mem_mb_used_p99
+    max(data.mem_used) as mem_mb_used_max
+    max(data.mem) as mem_mb_total
+    by _time host report 
+| eval 
+    {report}_count=count,
+    {report}_elapsed_ms=elapsed_ms,
+    {report}_kb=kb 
+| fields - count elapsed_ms 
+| eval 
+    churn_deleted_gb=churn_deleted_bytes/pow(1024,3),
+    churn_created_gb=churn_created_bytes/pow(1024,3),
+    churn_downloaded_gb=churn_downloaded_kb/pow(1024,2), 
+    churn_uploaded_gb=churn_uploaded_kb/pow(1024,2),
+    churn_created_dc_indexes=if(churn_created_dc_indexes=0,null(),churn_created_dc_indexes) 
+    ``` search conncurrency clean up ``` 
+| foreach *_miss_wait 
+    [| eval search_{report}_&lt;&lt;MATCHSTR&gt;&gt;_wait_sum=&lt;&lt;FIELD&gt;&gt;] 
+| fields - count index_miss_wait rawdata_miss_wait report 
+    ``` host wide clean up``` 
+| eval normalized_load_avg_avg=round(normalized_load_avg_avg,2) 
+| foreach *_idle 
+    [| eval &lt;&lt;MATCHSEG1&gt;&gt;=100-round(&lt;&lt;FIELD&gt;&gt;,2)] 
+| foreach mem_* 
+    [| eval &lt;&lt;FIELD&gt;&gt;=round(&lt;&lt;FIELD&gt;&gt;,3)] 
+| foreach cpu_* 
+    [| eval cores_&lt;&lt;MATCHSTR&gt;&gt;=virtual_cpu_count*round(&lt;&lt;FIELD&gt;&gt;/100,3)] 
+| fields - *_idle 
+| fields - count churn_deleted_bytes kb churn_uploaded_kb churn_downloaded_kb churn_uploaded_kb churn_created_bytes churn_deleted_bytes 
+| stats list(*) as * by _time host 
+</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">1</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>
