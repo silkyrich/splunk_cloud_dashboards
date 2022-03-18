@@ -1,0 +1,211 @@
+<form version="1.1">
+  <label>Health reporter</label>
+  <fieldset submitButton="false" autoRun="false">
+    <input type="time" token="time">
+      <label></label>
+      <default>
+        <earliest>-7d@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="selected_resolution">
+      <label>Chart resolution</label>
+      <choice value="100">low (100)</choice>
+      <choice value="250">medium (250)</choice>
+      <choice value="500">high (500)</choice>
+      <choice value="1000">break my browser (1000)</choice>
+      <default>250</default>
+      <initialValue>250</initialValue>
+    </input>
+    <input type="text" token="svc_allocation">
+      <label>SVC allocation</label>
+      <default>100</default>
+    </input>
+    <input type="text" token="selected_hosts">
+      <label>selected_hosts</label>
+      <default>idx-*, sh-i*, idm-*, c0m1-*</default>
+      <prefix>host IN (</prefix>
+      <suffix>)</suffix>
+    </input>
+  </fieldset>
+  <row>
+    <panel depends="$debug$">
+      <title></title>
+      <input type="text" token="selected_span_1s" searchWhenChanged="true">
+        <label>selected_span_1s</label>
+        <default>1</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_10s">
+        <label>selected_span_10s</label>
+        <default>10</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_31s">
+        <label>selected_span_31s</label>
+        <default>31</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+      <input type="text" token="selected_span_60s">
+        <label>selected_span_60s</label>
+        <default>60</default>
+        <prefix>span=</prefix>
+        <suffix>s</suffix>
+      </input>
+    </panel>
+    <panel depends="$debug$">
+      <title>Compute timespan</title>
+      <table>
+        <search>
+          <done>
+            <set token="form.selected_span_1s">$result.span_1s$</set>
+            <set token="form.selected_span_10s">$result.span_10s$</set>
+            <set token="form.selected_span_31s">$result.span_31s$</set>
+            <set token="form.selected_span_60s">$result.span_60s$</set>
+          </done>
+          <query>| makeresults 
+| addinfo 
+| eval 
+    duration_seconds=info_max_time-info_min_time,
+    resolution=$selected_resolution$,
+    span_1s=if(duration_seconds/resolution&lt;1,1,round(duration_seconds/resolution,0)),
+    span_10s=if(duration_seconds/resolution&lt;10,10,round(duration_seconds/resolution,0)),
+    span_31s=if(duration_seconds/resolution&lt;31,31,round(duration_seconds/resolution,0)),
+    span_60s=if(duration_seconds/resolution&lt;60,60,round(duration_seconds/resolution,0))   
+| fields span_*</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <html>
+        <h1>Health log reporting</h1>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <input type="dropdown" token="selected_health_hosts">
+        <fieldForLabel>host</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search base="health_log">
+          <query>| stats count by host</query>
+        </search>
+        <label>Select host(s)</label>
+        <default>*</default>
+        <choice value="idx*">All indexers</choice>
+        <choice value="sh*">All search heads</choice>
+        <choice value="c0m1*">CM</choice>
+        <choice value="*">Everything</choice>
+        <prefix>host=</prefix>
+      </input>
+      <input type="text" token="selected_threshold_kpi_errors">
+        <label>Threshold for KPI errors %</label>
+        <default>99.5</default>
+      </input>
+      <chart>
+        <title>Indexers health.log errors and warnings $selected_health_hosts$</title>
+        <search base="health_log">
+          <query>| search $selected_health_hosts$ 
+| fields - host stack 
+| stats sum(*) as * by _time node_path 
+| eval total=coalesce(green,0)+coalesce(yellow,0)+coalesce(red,0) 
+| foreach red green yellow 
+    [| eval
+        &lt;&lt;FIELD&gt;&gt;_pct=round(100*&lt;&lt;FIELD&gt;&gt;/total,2)] 
+| foreach red green yellow 
+    [| eval
+        &lt;&lt;FIELD&gt;&gt;_pct=round(100*&lt;&lt;FIELD&gt;&gt;/total,2)] 
+| eventstats 
+    min(green_pct) as max_green_pct 
+    by node_path 
+| where max_green_pct&lt;=$selected_threshold_kpi_errors$ or isnull(max_green_pct)
+| fields - total yellow green red stack max_green_pct
+| fillnull value=0</query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.axisTitleY2.visibility">collapsed</option>
+        <option name="charting.axisY.maximumNumber">105</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.fieldColors">{"green_pct": 0x00FF00, "red_pct": 0xFF0000, "yellow_pct":0xFFFF00}</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="height">592</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="trellis.enabled">1</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trellis.splitBy">node</option>
+        <selection>
+          <set token="window_start">$start$</set>
+          <set token="window_end">$end$</set>
+        </selection>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel depends="$debug$">
+      <table>
+        <title>Indexers health.log errors and warnings</title>
+        <search id="health_log">
+          <query>| tstats count where index=_internal NOT TERM(node_path=splunkd) TERM(color=*) $selected_hosts$ by _time host PREFIX(color=) PREFIX(node_path=) $selected_span_60s$ 
+| rename color= as color
+    node_path= as node_path 
+| eval {color}=count 
+| fields - count color 
+| stats list(*) as * by _time host node_path 
+| rex field=host "(?&lt;role&gt;\w+)-"
+
+
+    ```index=_internal source=*health.log* TERM(node_path=*) TERM(color=*) $selected_hosts$ 
+| stats 
+    count(eval(color="green")) as green
+    count(eval(color="yellow")) as yellow
+    count(eval(color="red")) as red
+    by _time host node_path 
+| rex field=host "(?&lt;role&gt;\w+)-" 
+| eval node=substr(node,9,len(node)) ```</query>
+          <earliest>$time.earliest$</earliest>
+          <latest>$time.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row depends="$selected_hosts$">
+    <panel>
+      <title>Open this dashboard but (with your filters)</title>
+      <input type="dropdown" token="selected_host">
+        <label>Select host</label>
+        <fieldForLabel>host</fieldForLabel>
+        <fieldForValue>host</fieldForValue>
+        <search base="health_log">
+          <query>| stats count by host</query>
+        </search>
+      </input>
+      <html>
+        <h1 style="text-align:center;">Log browser</h1>
+        <h2 style="text-align:center">
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_log_browser?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;&amp;form.selected_hosts=$form.selected_host$&amp;form.selected_span_1s=form.selected_span_1s">Log browser</a>
+              </h2>
+        <h1 style="text-align:center;">Ingestion</h1>
+        <h2 style="text-align:center">
+        <a target="_blank" rel="noopener noreferrer" href="rmorgan_ingestion?form.time.earliest=$window_start$&amp;form.time.latest=$window_end$&amp;form.selected_resolution=$selected_resolution$&amp;form.selected_host=$form.selected_host$&amp;form.selected_span_1s=form.selected_span_1s">Open this dashboard in a new window with a new base search and selected range time</a>
+      
+        </h2>
+      </html>
+    </panel>
+  </row>
+</form>
